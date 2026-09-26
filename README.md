@@ -1,1 +1,68 @@
-# agent_explore
+# PaperPulse — AI Research Paper Agent
+
+Weekly agent that scans the latest AI papers on [arXiv](https://arxiv.org), writes a short summary of each one, and surfaces them in a simple web UI you can track over time.
+
+## Features
+
+- **Weekly scheduled research** — APScheduler runs every Monday at 09:00 UTC (configurable)
+- **Manual runs** — trigger a scan anytime from the UI or API
+- **Summaries** — extractive summaries by default; optional OpenAI LLM digests when `OPENAI_API_KEY` is set
+- **Tracking** — mark papers read/unread, save for later, browse past runs
+- **arXiv categories** — defaults to `cs.AI`, `cs.LG`, `cs.CL`, `cs.CV`
+
+## Quick start
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+python run.py
+```
+
+Open [http://localhost:8000](http://localhost:8000).
+
+Click **Run research now** to fetch and summarize the latest papers immediately. The scheduler will keep doing this on the weekly cadence while the app is running.
+
+## Configuration
+
+Copy `.env.example` to `.env` and adjust:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `OPENAI_API_KEY` | empty | Enables richer LLM summaries |
+| `OPENAI_MODEL` | `gpt-4o-mini` | Model used when LLM mode is on |
+| `PAPERS_PER_RUN` | `20` | Max papers fetched per run |
+| `ARXIV_CATEGORIES` | `cs.AI,cs.LG,cs.CL,cs.CV` | Categories to scan |
+| `SCHEDULE_DAY_OF_WEEK` | `mon` | Cron day for weekly job |
+| `SCHEDULE_HOUR` / `SCHEDULE_MINUTE` | `9` / `0` | Local scheduler time |
+| `DATABASE_URL` | `sqlite:///./data/papers.db` | SQLite (or other SQLAlchemy URL) |
+
+## API
+
+- `GET /api/health` — health + next scheduled run
+- `GET /api/runs` — research run history
+- `GET /api/runs/{id}` — run detail with papers
+- `GET /api/papers` — list papers (`?saved=true`, `?unread=true`)
+- `PATCH /api/papers/{id}` — `{ "is_read": true, "is_saved": false }`
+- `POST /api/research/run` — start a manual research run
+
+## Tests
+
+```bash
+pytest -q
+```
+
+## Project layout
+
+```
+app/
+  agent.py          # fetch → summarize → persist
+  arxiv_client.py   # arXiv Atom API client
+  summarizer.py     # extractive + optional LLM summaries
+  scheduler.py      # weekly APScheduler job
+  main.py           # FastAPI + UI routes
+  models.py         # SQLAlchemy models
+  templates/        # Jinja UI
+  static/           # CSS / JS
+```

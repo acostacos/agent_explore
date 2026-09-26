@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Run #{{ run.id }} · {{ app_name }}{% endblock %}
+{% block content %}
+<section class="section run-hero">
+  <p class="eyebrow"><a href="/">← Digests</a></p>
+  <h1>Research run #{{ run.id }}</h1>
+  <p class="lede">
+    {{ run.status }} · {{ run.trigger }} · {{ run.papers_found }} papers
+    {% if run.started_at %} · started {{ run.started_at.strftime('%Y-%m-%d %H:%M') }} UTC{% endif %}
+  </p>
+  {% if run.error_message %}
+  <p class="empty error">{{ run.error_message }}</p>
+  {% endif %}
+</section>
+
+<section class="section">
+  {% if run.papers %}
+  <div class="paper-list">
+    {% for paper in run.papers %}
+    <article class="paper {% if paper.is_read %}is-read{% endif %}" data-paper-id="{{ paper.id }}">
+      <div class="paper-meta">
+        <span class="arxiv-id">{{ paper.arxiv_id }}</span>
+        {% if paper.published_at %}<time>{{ paper.published_at.strftime('%Y-%m-%d') }}</time>{% endif %}
+      </div>
+      <h3><a href="{{ paper.abs_url }}" target="_blank" rel="noopener">{{ paper.title }}</a></h3>
+      <p class="authors">{{ paper.authors }}</p>
+      <p class="summary">{{ paper.summary }}</p>
+      <details>
+        <summary>Abstract</summary>
+        <p class="abstract">{{ paper.abstract }}</p>
+      </details>
+      <div class="paper-actions">
+        <button type="button" class="btn ghost toggle-read" data-read="{{ 'true' if paper.is_read else 'false' }}">
+          {{ "Mark unread" if paper.is_read else "Mark read" }}
+        </button>
+        <button type="button" class="btn ghost toggle-save" data-saved="{{ 'true' if paper.is_saved else 'false' }}">
+          {{ "Unsave" if paper.is_saved else "Save" }}
+        </button>
+        {% if paper.pdf_url %}
+        <a class="btn ghost" href="{{ paper.pdf_url }}" target="_blank" rel="noopener">PDF</a>
+        {% endif %}
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="empty">No new papers in this run (all fetched papers were already tracked).</p>
+  {% endif %}
+</section>
+{% endblock %}

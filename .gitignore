@@ -157,6 +157,13 @@ ENV/
 env.bak/
 venv.bak/
 
+# App data
+data/*.db
+data/*.db-journal
+!data/.gitkeep
+*.db
+*.db-journal
+
 # Spyder project settings
 .spyderproject
 .spyproject
