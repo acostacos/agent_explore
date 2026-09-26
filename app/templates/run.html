@@ -7,6 +7,7 @@
   <p class="lede">
     {{ run.status }} · {{ run.trigger }} · {{ run.papers_found }} papers
     {% if run.started_at %} · started {{ run.started_at.strftime('%Y-%m-%d %H:%M') }} UTC{% endif %}
+    {% if run.keywords_used %}<br />Interests: {{ run.keywords_used }}{% endif %}
   </p>
   {% if run.error_message %}
   <p class="empty error">{{ run.error_message }}</p>
@@ -21,6 +22,8 @@
       <div class="paper-meta">
         <span class="arxiv-id">{{ paper.arxiv_id }}</span>
         {% if paper.published_at %}<time>{{ paper.published_at.strftime('%Y-%m-%d') }}</time>{% endif %}
+        <span class="cites">{{ paper.citation_count }} cites</span>
+        {% if paper.matched_keywords %}<span class="matched">{{ paper.matched_keywords }}</span>{% endif %}
       </div>
       <h3><a href="{{ paper.abs_url }}" target="_blank" rel="noopener">{{ paper.title }}</a></h3>
       <p class="authors">{{ paper.authors }}</p>

@@ -21,4 +21,4 @@ def test_extractive_summary_handles_short_abstract():
 def test_build_search_query():
     from app.arxiv_client import build_search_query
 
-    assert build_search_query(["cs.AI", "cs.LG"]) == "cat:cs.AI OR cat:cs.LG"
+    assert build_search_query(["cs.AI", "cs.LG"]) == "(cat:cs.AI OR cat:cs.LG)"

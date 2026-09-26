@@ -5,8 +5,9 @@
   <h1>Weekly AI paper digests, tracked in one place.</h1>
   <p class="lede">
     Every week the agent scans arXiv for new work in
-    {% for cat in categories %}<span class="cat">{{ cat }}</span>{% if not loop.last %}, {% endif %}{% endfor %}
-    and writes a short summary of each paper.
+    {% for cat in categories %}<span class="cat">{{ cat }}</span>{% if not loop.last %}, {% endif %}{% endfor %}{% if keywords %},
+    biased toward your interests{% endif %},
+    then ranks for citation traction and summarizes each pick.
   </p>
   <div class="cta-row">
     <form action="/research/run" method="post">
@@ -30,8 +31,8 @@
     <span class="metric-label">unread</span>
   </div>
   <div>
-    <span class="metric-value">{{ runs|length }}</span>
-    <span class="metric-label">recent runs</span>
+    <span class="metric-value">{{ keywords|length }}</span>
+    <span class="metric-label">interest keywords</span>
   </div>
   <div>
     <span class="metric-value">{{ "LLM" if llm_enabled else "Extractive" }}</span>
@@ -39,13 +40,38 @@
   </div>
 </section>
 
+<section id="interests" class="section">
+  <header class="section-head">
+    <h2>Interest keywords</h2>
+    <p>Load topics you care about. The agent searches arXiv with these terms and boosts matching papers.</p>
+  </header>
+  <form class="interests-form" action="/interests" method="post">
+    <label for="keywords">Keywords or phrases (comma or newline separated)</label>
+    <textarea id="keywords" name="keywords" rows="5" placeholder="retrieval augmented generation&#10;LLM agents&#10;diffusion models">{{ keywords|join('\n') }}</textarea>
+    <div class="cta-row">
+      <button type="submit" class="btn primary">Save interests</button>
+      <p class="schedule-note">Also loadable from <code>data/interests.txt</code> or <code>INTEREST_KEYWORDS</code>.</p>
+    </div>
+  </form>
+  {% if keywords %}
+  <ul class="keyword-chips" aria-label="Active interests">
+    {% for kw in keywords %}
+    <li>{{ kw }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</section>
+
 <section id="digest" class="section">
   <header class="section-head">
     <h2>Latest digest</h2>
     {% if latest_run %}
-    <p>Run #{{ latest_run.id }} · {{ latest_run.status }} · {{ latest_run.papers_found }} new papers · {{ latest_run.trigger }}</p>
+    <p>
+      Run #{{ latest_run.id }} · {{ latest_run.status }} · {{ latest_run.papers_found }} new papers · {{ latest_run.trigger }}
+      {% if latest_run.keywords_used %} · interests: {{ latest_run.keywords_used }}{% endif %}
+    </p>
     {% else %}
-    <p>No research runs yet. Hit “Run research now” to fetch the latest papers.</p>
+    <p>No research runs yet. Add interests, then hit “Run research now”.</p>
     {% endif %}
   </header>
 
@@ -56,6 +82,8 @@
       <div class="paper-meta">
         <span class="arxiv-id">{{ paper.arxiv_id }}</span>
         {% if paper.published_at %}<time>{{ paper.published_at.strftime('%Y-%m-%d') }}</time>{% endif %}
+        <span class="cites" title="Semantic Scholar citations">{{ paper.citation_count }} cite{{ '' if paper.citation_count == 1 else 's' }}</span>
+        {% if paper.matched_keywords %}<span class="matched">{{ paper.matched_keywords }}</span>{% endif %}
         <span class="cats">{{ paper.categories }}</span>
       </div>
       <h3><a href="{{ paper.abs_url }}" target="_blank" rel="noopener">{{ paper.title }}</a></h3>

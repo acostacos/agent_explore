@@ -14,6 +14,13 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4o-mini"
     papers_per_run: int = 20
     arxiv_categories: str = "cs.AI,cs.LG,cs.CL,cs.CV"
+    # Comma/newline-separated seed interests (also loadable via UI or interests file).
+    interest_keywords: str = ""
+    interests_file: str = "./data/interests.txt"
+    # Optional Semantic Scholar API key (higher rate limits).
+    semanticscholar_api_key: str = ""
+    # When true and interests exist, only keep papers that match at least one keyword.
+    require_keyword_match: bool = False
     schedule_day_of_week: str = "mon"
     schedule_hour: int = 9
     schedule_minute: int = 0

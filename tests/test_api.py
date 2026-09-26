@@ -9,7 +9,11 @@ from app.scheduler import shutdown_scheduler
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
     db_path = tmp_path / "test.db"
+    interests = tmp_path / "interests.txt"
+    interests.write_text("graph neural networks\n", encoding="utf-8")
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db_path}")
+    monkeypatch.setenv("INTERESTS_FILE", str(interests))
+    monkeypatch.setenv("INTEREST_KEYWORDS", "causal inference")
     get_settings.cache_clear()
     models.configure_engine(f"sqlite:///{db_path}")
     models.init_db()
@@ -33,6 +37,30 @@ def test_home_renders(client):
     res = client.get("/")
     assert res.status_code == 200
     assert b"PaperPulse" in res.content
+    assert b"Interest keywords" in res.content
+
+
+def test_interests_seeded_and_replaceable(client):
+    res = client.get("/api/interests")
+    assert res.status_code == 200
+    seeded = set(res.json()["keywords"])
+    assert "graph neural networks" in seeded
+    assert "causal inference" in seeded
+
+    res = client.put(
+        "/api/interests",
+        json={"keywords": ["LLM agents", "diffusion models", "LLM agents"]},
+    )
+    assert res.status_code == 200
+    assert res.json()["keywords"] == ["diffusion models", "llm agents"]
+
+    res = client.post(
+        "/interests",
+        data={"keywords": "multimodal, world models"},
+        follow_redirects=False,
+    )
+    assert res.status_code == 303
+    assert client.get("/api/interests").json()["keywords"] == ["multimodal", "world models"]
 
 
 def test_paper_update_roundtrip(client):
@@ -51,6 +79,9 @@ def test_paper_update_roundtrip(client):
         categories="cs.AI",
         abs_url="https://arxiv.org/abs/2401.00001",
         pdf_url="https://arxiv.org/pdf/2401.00001.pdf",
+        citation_count=12,
+        rank_score=4.2,
+        matched_keywords="llm agents",
     )
     db.add(paper)
     db.commit()
@@ -63,3 +94,4 @@ def test_paper_update_roundtrip(client):
     body = res.json()
     assert body["is_read"] is True
     assert body["is_saved"] is True
+    assert body["citation_count"] == 12

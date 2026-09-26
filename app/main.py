@@ -6,17 +6,18 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.agent import ResearchAgent
 from app.config import get_settings
-from app.models import Paper, ResearchRun, get_db, init_db
+from app.interests import list_keywords, parse_keywords, replace_keywords, sync_seed_keywords
+from app.models import Paper, ResearchRun, configure_engine, get_db, init_db
 from app.scheduler import next_run_time, shutdown_scheduler, start_scheduler
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -29,7 +30,10 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     Path("data").mkdir(parents=True, exist_ok=True)
+    # Rebind from current settings so tests can point at a temp database.
+    configure_engine()
     init_db()
+    sync_seed_keywords()
     start_scheduler()
     yield
     shutdown_scheduler()
@@ -44,6 +48,10 @@ class PaperUpdate(BaseModel):
     is_saved: bool | None = None
 
 
+class InterestsUpdate(BaseModel):
+    keywords: list[str] | str = Field(default_factory=list)
+
+
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request, db: Session = Depends(get_db)):
     settings = get_settings()
@@ -55,12 +63,13 @@ async def home(request: Request, db: Session = Depends(get_db)):
     ).all()
     latest_run = runs[0] if runs else None
     saved = db.scalars(
-        select(Paper).where(Paper.is_saved.is_(True)).order_by(desc(Paper.created_at)).limit(20)
+        select(Paper).where(Paper.is_saved.is_(True)).order_by(desc(Paper.rank_score)).limit(20)
     ).all()
     unread_count = (
         db.scalar(select(func.count()).select_from(Paper).where(Paper.is_read.is_(False))) or 0
     )
     total_papers = db.scalar(select(func.count()).select_from(Paper)) or 0
+    keywords = list_keywords(db)
 
     return templates.TemplateResponse(
         request,
@@ -74,6 +83,7 @@ async def home(request: Request, db: Session = Depends(get_db)):
             "total_papers": total_papers,
             "next_run": next_run_time(),
             "categories": settings.categories,
+            "keywords": keywords,
             "llm_enabled": settings.llm_enabled,
             "schedule_day": settings.schedule_day_of_week,
             "schedule_hour": settings.schedule_hour,
@@ -108,6 +118,23 @@ async def health():
     return {"status": "ok", "next_run": next_run_time()}
 
 
+@app.get("/api/interests")
+async def get_interests(db: Session = Depends(get_db)):
+    return {"keywords": list_keywords(db)}
+
+
+@app.put("/api/interests")
+async def put_interests(body: InterestsUpdate, db: Session = Depends(get_db)):
+    keywords = replace_keywords(db, parse_keywords(body.keywords), source="ui")
+    return {"keywords": keywords}
+
+
+@app.post("/interests")
+async def interests_form(keywords: str = Form(""), db: Session = Depends(get_db)):
+    replace_keywords(db, parse_keywords(keywords), source="ui")
+    return RedirectResponse(url="/#interests", status_code=303)
+
+
 @app.get("/api/runs")
 async def list_runs(db: Session = Depends(get_db)):
     runs = db.scalars(select(ResearchRun).order_by(desc(ResearchRun.started_at)).limit(50)).all()
@@ -120,6 +147,7 @@ async def list_runs(db: Session = Depends(get_db)):
             "trigger": r.trigger,
             "papers_found": r.papers_found,
             "categories": r.categories,
+            "keywords_used": r.keywords_used,
             "error_message": r.error_message,
         }
         for r in runs
@@ -143,6 +171,7 @@ async def get_run(run_id: int, db: Session = Depends(get_db)):
         "trigger": run.trigger,
         "papers_found": run.papers_found,
         "categories": run.categories,
+        "keywords_used": run.keywords_used,
         "error_message": run.error_message,
         "papers": [_paper_dict(p) for p in run.papers],
     }
@@ -155,7 +184,7 @@ async def list_papers(
     limit: int = 50,
     db: Session = Depends(get_db),
 ):
-    q = select(Paper).order_by(desc(Paper.created_at)).limit(min(limit, 200))
+    q = select(Paper).order_by(desc(Paper.rank_score), desc(Paper.created_at)).limit(min(limit, 200))
     if saved is True:
         q = q.where(Paper.is_saved.is_(True))
     if unread is True:
@@ -181,7 +210,6 @@ async def update_paper(paper_id: int, body: PaperUpdate, db: Session = Depends(g
 @app.post("/api/research/run")
 async def trigger_research(db: Session = Depends(get_db)):
     """Manually kick off a research run (also used by the UI button)."""
-    # Avoid overlapping runs.
     active = db.scalar(select(ResearchRun).where(ResearchRun.status == "running"))
     if active:
         raise HTTPException(status_code=409, detail="A research run is already in progress")
@@ -196,6 +224,7 @@ async def trigger_research(db: Session = Depends(get_db)):
         "status": run.status,
         "papers_found": run.papers_found,
         "trigger": run.trigger,
+        "keywords_used": run.keywords_used,
     }
 
 
@@ -227,5 +256,9 @@ def _paper_dict(p: Paper) -> dict:
         "abs_url": p.abs_url,
         "is_read": p.is_read,
         "is_saved": p.is_saved,
+        "citation_count": p.citation_count,
+        "influential_citation_count": p.influential_citation_count,
+        "matched_keywords": p.matched_keywords,
+        "rank_score": p.rank_score,
         "created_at": p.created_at.isoformat() if p.created_at else None,
     }

@@ -90,18 +90,31 @@ def _entry_to_paper(entry: ET.Element) -> ArxivPaper | None:
     )
 
 
-def build_search_query(categories: list[str]) -> str:
-    parts = [f"cat:{cat}" for cat in categories]
-    return " OR ".join(parts)
+def _quote_term(term: str) -> str:
+    term = term.strip()
+    if " " in term:
+        return f'"{term}"'
+    return term
 
 
-async def fetch_recent_papers(
-    categories: list[str],
-    max_results: int = 20,
-    timeout: float = 30.0,
-) -> list[ArxivPaper]:
-    """Fetch the most recently submitted papers for the given arXiv categories."""
-    query = build_search_query(categories)
+def build_search_query(categories: list[str], keywords: list[str] | None = None) -> str:
+    cat_parts = [f"cat:{cat}" for cat in categories]
+    cat_clause = " OR ".join(cat_parts)
+    if len(cat_parts) > 1:
+        cat_clause = f"({cat_clause})"
+
+    keywords = keywords or []
+    if not keywords:
+        return cat_clause
+
+    kw_parts = [f"all:{_quote_term(kw)}" for kw in keywords]
+    kw_clause = " OR ".join(kw_parts)
+    if len(kw_parts) > 1:
+        kw_clause = f"({kw_clause})"
+    return f"{cat_clause} AND {kw_clause}"
+
+
+async def _query_arxiv(query: str, max_results: int, timeout: float) -> list[ArxivPaper]:
     url = (
         "https://export.arxiv.org/api/query"
         f"?search_query={quote_plus(query)}"
@@ -120,3 +133,30 @@ async def fetch_recent_papers(
         if paper and paper.title:
             papers.append(paper)
     return papers
+
+
+async def fetch_recent_papers(
+    categories: list[str],
+    max_results: int = 20,
+    keywords: list[str] | None = None,
+    timeout: float = 30.0,
+) -> list[ArxivPaper]:
+    """Fetch candidate papers, optionally biased toward interest keywords."""
+    keywords = keywords or []
+    # Oversample so ranking can pick the best cited / most relevant subset.
+    pool_size = max(max_results * 3, max_results)
+
+    seen: dict[str, ArxivPaper] = {}
+
+    if keywords:
+        interest_query = build_search_query(categories, keywords)
+        for paper in await _query_arxiv(interest_query, pool_size, timeout):
+            seen[paper.arxiv_id] = paper
+
+    # Always include a recent category sweep so brand-new work is not missed
+    # when citations have not landed yet.
+    recent_query = build_search_query(categories)
+    for paper in await _query_arxiv(recent_query, pool_size, timeout):
+        seen.setdefault(paper.arxiv_id, paper)
+
+    return list(seen.values())
