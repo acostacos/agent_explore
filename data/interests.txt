@@ -1,0 +1,7 @@
+# One interest keyword or phrase per line.
+# Loaded automatically on startup and merged into the agent.
+LLM agents
+retrieval augmented generation
+diffusion models
+reinforcement learning
+multimodal

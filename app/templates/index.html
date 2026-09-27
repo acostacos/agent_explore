@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero">
+  <p class="brand-mark">{{ app_name }}</p>
+  <h1>Weekly AI paper digests, tracked in one place.</h1>
+  <p class="lede">
+    A Strands agent scans arXiv weekly for new work in
+    {% for cat in categories %}<span class="cat">{{ cat }}</span>{% if not loop.last %}, {% endif %}{% endfor %}{% if keywords %},
+    biased toward your interests{% endif %},
+    ranks for citation traction, summarizes each pick{% if telegram_enabled %}, and sends the digest to Telegram{% endif %}.
+  </p>
+  <div class="cta-row">
+    <form action="/research/run" method="post">
+      <button type="submit" class="btn primary" id="run-btn">Run research now</button>
+    </form>
+    <p class="schedule-note">
+      Next automatic run:
+      {% if next_run %}<time datetime="{{ next_run }}">{{ next_run }}</time>
+      {% else %}{{ schedule_day }} {{ '%02d'|format(schedule_hour) }}:{{ '%02d'|format(schedule_minute) }} UTC{% endif %}
+      {% if telegram_enabled %} · Telegram notify on{% else %} · Telegram not configured{% endif %}
+    </p>
+  </div>
+</section>
+
+<section class="metrics" aria-label="Library overview">
+  <div>
+    <span class="metric-value">{{ total_papers }}</span>
+    <span class="metric-label">papers tracked</span>
+  </div>
+  <div>
+    <span class="metric-value">{{ unread_count }}</span>
+    <span class="metric-label">unread</span>
+  </div>
+  <div>
+    <span class="metric-value">{{ keywords|length }}</span>
+    <span class="metric-label">interest keywords</span>
+  </div>
+  <div>
+    <span class="metric-value">{{ "LLM" if llm_enabled else "Extractive" }}</span>
+    <span class="metric-label">summarizer</span>
+  </div>
+</section>
+
+<section id="interests" class="section">
+  <header class="section-head">
+    <h2>Interest keywords</h2>
+    <p>Load topics you care about. The agent searches arXiv with these terms and boosts matching papers.</p>
+  </header>
+  <form class="interests-form" action="/interests" method="post">
+    <label for="keywords">Keywords or phrases (comma or newline separated)</label>
+    <textarea id="keywords" name="keywords" rows="5" placeholder="retrieval augmented generation&#10;LLM agents&#10;diffusion models">{{ keywords|join('\n') }}</textarea>
+    <div class="cta-row">
+      <button type="submit" class="btn primary">Save interests</button>
+      <p class="schedule-note">Also loadable from <code>data/interests.txt</code> or <code>INTEREST_KEYWORDS</code>.</p>
+    </div>
+  </form>
+  {% if keywords %}
+  <ul class="keyword-chips" aria-label="Active interests">
+    {% for kw in keywords %}
+    <li>{{ kw }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</section>
+
+<section id="digest" class="section">
+  <header class="section-head">
+    <h2>Latest digest</h2>
+    {% if latest_run %}
+    <p>
+      Run #{{ latest_run.id }} · {{ latest_run.status }} · {{ latest_run.papers_found }} new papers · {{ latest_run.trigger }}
+      {% if latest_run.keywords_used %} · interests: {{ latest_run.keywords_used }}{% endif %}
+    </p>
+    {% else %}
+    <p>No research runs yet. Add interests, then hit “Run research now”.</p>
+    {% endif %}
+  </header>
+
+  {% if latest_run and latest_run.papers %}
+  <div class="paper-list">
+    {% for paper in latest_run.papers %}
+    <article class="paper {% if paper.is_read %}is-read{% endif %}" data-paper-id="{{ paper.id }}">
+      <div class="paper-meta">
+        <span class="arxiv-id">{{ paper.arxiv_id }}</span>
+        {% if paper.published_at %}<time>{{ paper.published_at.strftime('%Y-%m-%d') }}</time>{% endif %}
+        <span class="cites" title="Semantic Scholar citations">{{ paper.citation_count }} cite{{ '' if paper.citation_count == 1 else 's' }}</span>
+        {% if paper.matched_keywords %}<span class="matched">{{ paper.matched_keywords }}</span>{% endif %}
+        <span class="cats">{{ paper.categories }}</span>
+      </div>
+      <h3><a href="{{ paper.abs_url }}" target="_blank" rel="noopener">{{ paper.title }}</a></h3>
+      <p class="authors">{{ paper.authors }}</p>
+      <p class="summary">{{ paper.summary }}</p>
+      <div class="paper-actions">
+        <button type="button" class="btn ghost toggle-read" data-read="{{ 'true' if paper.is_read else 'false' }}">
+          {{ "Mark unread" if paper.is_read else "Mark read" }}
+        </button>
+        <button type="button" class="btn ghost toggle-save" data-saved="{{ 'true' if paper.is_saved else 'false' }}">
+          {{ "Unsave" if paper.is_saved else "Save" }}
+        </button>
+        {% if paper.pdf_url %}
+        <a class="btn ghost" href="{{ paper.pdf_url }}" target="_blank" rel="noopener">PDF</a>
+        {% endif %}
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  {% elif latest_run and latest_run.status == 'failed' %}
+  <p class="empty error">Last run failed: {{ latest_run.error_message }}</p>
+  {% else %}
+  <p class="empty">Waiting for the first digest.</p>
+  {% endif %}
+</section>
+
+<section id="saved" class="section">
+  <header class="section-head">
+    <h2>Saved for later</h2>
+    <p>Papers you flagged while browsing digests.</p>
+  </header>
+  {% if saved %}
+  <div class="paper-list compact">
+    {% for paper in saved %}
+    <article class="paper" data-paper-id="{{ paper.id }}">
+      <h3><a href="{{ paper.abs_url }}" target="_blank" rel="noopener">{{ paper.title }}</a></h3>
+      <p class="summary">{{ paper.summary }}</p>
+      <div class="paper-actions">
+        <button type="button" class="btn ghost toggle-save" data-saved="true">Unsave</button>
+        <a class="btn ghost" href="{{ paper.abs_url }}" target="_blank" rel="noopener">arXiv</a>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="empty">Nothing saved yet.</p>
+  {% endif %}
+</section>
+
+<section id="runs" class="section">
+  <header class="section-head">
+    <h2>Research runs</h2>
+    <p>History of scheduled and manual scans.</p>
+  </header>
+  {% if runs %}
+  <ul class="run-list">
+    {% for run in runs %}
+    <li>
+      <a href="/runs/{{ run.id }}">
+        <span class="run-id">#{{ run.id }}</span>
+        <span class="run-status status-{{ run.status }}">{{ run.status }}</span>
+        <span>{{ run.started_at.strftime('%Y-%m-%d %H:%M') if run.started_at else '—' }} UTC</span>
+        <span>{{ run.papers_found }} papers</span>
+        <span>{{ run.trigger }}</span>
+      </a>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="empty">No runs recorded.</p>
+  {% endif %}
+</section>
+{% endblock %}
