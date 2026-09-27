@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     semanticscholar_api_key: str = ""
     # When true and interests exist, only keep papers that match at least one keyword.
     require_keyword_match: bool = False
+    # Telegram Bot API (notify when a research run completes).
+    telegram_bot_token: str = ""
+    telegram_chat_id: str = ""
     schedule_day_of_week: str = "mon"
     schedule_hour: int = 9
     schedule_minute: int = 0
@@ -34,6 +37,10 @@ class Settings(BaseSettings):
     @property
     def llm_enabled(self) -> bool:
         return bool(self.openai_api_key.strip())
+
+    @property
+    def telegram_enabled(self) -> bool:
+        return bool(self.telegram_bot_token.strip() and self.telegram_chat_id.strip())
 
 
 @lru_cache

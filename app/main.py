@@ -11,8 +11,9 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
-from sqlalchemy import desc, func, select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy import func
+from sqlalchemy.orm import selectinload
+from sqlmodel import Session, col, select
 
 from app.agent import ResearchAgent
 from app.config import get_settings
@@ -30,7 +31,6 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     Path("data").mkdir(parents=True, exist_ok=True)
-    # Rebind from current settings so tests can point at a temp database.
     configure_engine()
     init_db()
     sync_seed_keywords()
@@ -55,20 +55,24 @@ class InterestsUpdate(BaseModel):
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request, db: Session = Depends(get_db)):
     settings = get_settings()
-    runs = db.scalars(
+    runs = db.exec(
         select(ResearchRun)
         .options(selectinload(ResearchRun.papers))
-        .order_by(desc(ResearchRun.started_at))
+        .order_by(col(ResearchRun.started_at).desc())
         .limit(12)
     ).all()
     latest_run = runs[0] if runs else None
-    saved = db.scalars(
-        select(Paper).where(Paper.is_saved.is_(True)).order_by(desc(Paper.rank_score)).limit(20)
+    saved = db.exec(
+        select(Paper)
+        .where(Paper.is_saved == True)  # noqa: E712
+        .order_by(col(Paper.rank_score).desc())
+        .limit(20)
     ).all()
     unread_count = (
-        db.scalar(select(func.count()).select_from(Paper).where(Paper.is_read.is_(False))) or 0
+        db.exec(select(func.count()).select_from(Paper).where(Paper.is_read == False)).one()  # noqa: E712
+        or 0
     )
-    total_papers = db.scalar(select(func.count()).select_from(Paper)) or 0
+    total_papers = db.exec(select(func.count()).select_from(Paper)).one() or 0
     keywords = list_keywords(db)
 
     return templates.TemplateResponse(
@@ -85,6 +89,7 @@ async def home(request: Request, db: Session = Depends(get_db)):
             "categories": settings.categories,
             "keywords": keywords,
             "llm_enabled": settings.llm_enabled,
+            "telegram_enabled": settings.telegram_enabled,
             "schedule_day": settings.schedule_day_of_week,
             "schedule_hour": settings.schedule_hour,
             "schedule_minute": settings.schedule_minute,
@@ -95,11 +100,11 @@ async def home(request: Request, db: Session = Depends(get_db)):
 @app.get("/runs/{run_id}", response_class=HTMLResponse)
 async def run_detail(run_id: int, request: Request, db: Session = Depends(get_db)):
     settings = get_settings()
-    run = db.scalar(
+    run = db.exec(
         select(ResearchRun)
         .options(selectinload(ResearchRun.papers))
         .where(ResearchRun.id == run_id)
-    )
+    ).first()
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
     return templates.TemplateResponse(
@@ -115,7 +120,13 @@ async def run_detail(run_id: int, request: Request, db: Session = Depends(get_db
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok", "next_run": next_run_time()}
+    settings = get_settings()
+    return {
+        "status": "ok",
+        "next_run": next_run_time(),
+        "telegram_enabled": settings.telegram_enabled,
+        "strands": settings.llm_enabled,
+    }
 
 
 @app.get("/api/interests")
@@ -137,7 +148,7 @@ async def interests_form(keywords: str = Form(""), db: Session = Depends(get_db)
 
 @app.get("/api/runs")
 async def list_runs(db: Session = Depends(get_db)):
-    runs = db.scalars(select(ResearchRun).order_by(desc(ResearchRun.started_at)).limit(50)).all()
+    runs = db.exec(select(ResearchRun).order_by(col(ResearchRun.started_at).desc()).limit(50)).all()
     return [
         {
             "id": r.id,
@@ -156,11 +167,11 @@ async def list_runs(db: Session = Depends(get_db)):
 
 @app.get("/api/runs/{run_id}")
 async def get_run(run_id: int, db: Session = Depends(get_db)):
-    run = db.scalar(
+    run = db.exec(
         select(ResearchRun)
         .options(selectinload(ResearchRun.papers))
         .where(ResearchRun.id == run_id)
-    )
+    ).first()
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
     return {
@@ -184,12 +195,14 @@ async def list_papers(
     limit: int = 50,
     db: Session = Depends(get_db),
 ):
-    q = select(Paper).order_by(desc(Paper.rank_score), desc(Paper.created_at)).limit(min(limit, 200))
+    q = select(Paper).order_by(col(Paper.rank_score).desc(), col(Paper.created_at).desc()).limit(
+        min(limit, 200)
+    )
     if saved is True:
-        q = q.where(Paper.is_saved.is_(True))
+        q = q.where(Paper.is_saved == True)  # noqa: E712
     if unread is True:
-        q = q.where(Paper.is_read.is_(False))
-    papers = db.scalars(q).all()
+        q = q.where(Paper.is_read == False)  # noqa: E712
+    papers = db.exec(q).all()
     return [_paper_dict(p) for p in papers]
 
 
@@ -209,8 +222,8 @@ async def update_paper(paper_id: int, body: PaperUpdate, db: Session = Depends(g
 
 @app.post("/api/research/run")
 async def trigger_research(db: Session = Depends(get_db)):
-    """Manually kick off a research run (also used by the UI button)."""
-    active = db.scalar(select(ResearchRun).where(ResearchRun.status == "running"))
+    """Manually kick off a Strands research run."""
+    active = db.exec(select(ResearchRun).where(ResearchRun.status == "running")).first()
     if active:
         raise HTTPException(status_code=409, detail="A research run is already in progress")
 
@@ -231,7 +244,7 @@ async def trigger_research(db: Session = Depends(get_db)):
 @app.post("/research/run")
 async def trigger_research_form(db: Session = Depends(get_db)):
     """Form POST that redirects back to the home page."""
-    active = db.scalar(select(ResearchRun).where(ResearchRun.status == "running"))
+    active = db.exec(select(ResearchRun).where(ResearchRun.status == "running")).first()
     if not active:
         agent = ResearchAgent()
         try:

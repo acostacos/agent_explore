@@ -1,16 +1,16 @@
-# PaperPulse — AI Research Paper Agent
+# PaperPulse — Strands AI Research Paper Agent
 
-Weekly agent that scans the latest AI papers on [arXiv](https://arxiv.org), ranks them by your interests and citation traction, writes a short summary of each pick, and surfaces them in a simple web UI.
+Weekly [Strands Agents](https://strandsagents.com/) research agent that scans the latest AI papers on [arXiv](https://arxiv.org), ranks them by your interests and citation traction, writes a short summary of each pick, stores digests in SQLite (SQLModel), and can send the result to **Telegram**.
 
 ## Features
 
+- **Strands agent** — tool-using agent (`fetch → cite → rank → persist → Telegram`)
 - **Interest keywords** — load topics via the UI, `data/interests.txt`, or `INTEREST_KEYWORDS`
-- **Citation-aware ranking** — enriches candidates with Semantic Scholar citations and prioritizes **new, well-cited** papers (citation velocity + recency)
-- **Weekly scheduled research** — APScheduler runs every Monday at 09:00 UTC (configurable)
-- **Manual runs** — trigger a scan anytime from the UI or API
-- **Summaries** — extractive summaries by default; optional OpenAI LLM digests when `OPENAI_API_KEY` is set
-- **Tracking** — mark papers read/unread, save for later, browse past runs
-- **arXiv categories** — defaults to `cs.AI`, `cs.LG`, `cs.CL`, `cs.CV`
+- **Citation-aware ranking** — Semantic Scholar citation velocity + keyword match + recency
+- **Weekly schedule** — APScheduler every Monday at 09:00 UTC (configurable)
+- **Telegram digest** — notify `TELEGRAM_CHAT_ID` when a run completes
+- **SQLModel + SQLite** — simple persistence
+- **Vanilla HTML/JS UI** — track runs, mark read, save favorites
 
 ## Quick start
 
@@ -19,53 +19,64 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
+# Set OPENAI_API_KEY for Strands LLM orchestration (recommended)
+# Set TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID for weekly Telegram digests
 python run.py
 ```
 
 Open [http://localhost:8000](http://localhost:8000).
 
-1. Add interest keywords in the **Interests** section (or edit `data/interests.txt`)
+1. Add interest keywords in **Interests**
 2. Click **Run research now**
-3. Digests are ranked with citation counts and matched keywords shown on each card
+3. When Telegram is configured, the digest is sent after the run finishes
 
-The scheduler keeps doing this on the weekly cadence while the app is running.
+Without `OPENAI_API_KEY`, the same Strands tools still run in a fixed deterministic order (dev/offline mode).
 
-## How ranking works
+## Telegram setup
 
-Each run:
+1. Message [@BotFather](https://t.me/BotFather) → `/newbot` → copy the token into `TELEGRAM_BOT_TOKEN`
+2. Start a chat with your bot (or add it to a group)
+3. Get your chat id (e.g. via `@userinfobot` or the Bot API `getUpdates`) → `TELEGRAM_CHAT_ID`
 
-1. Pulls a candidate pool from arXiv (interest keyword query + recent category sweep)
-2. Looks up citation counts on Semantic Scholar
-3. Scores papers by keyword match, **citation velocity** (cites / age), influential cites, and recency
-4. Keeps the top `PAPERS_PER_RUN` new papers and summarizes them
+## How a run works
+
+```mermaid
+flowchart LR
+  Trigger[Scheduler_or_UI] --> Strands[Strands_Agent]
+  Strands --> Tools[Research_Tools]
+  Tools --> DB[(SQLite_SQLModel)]
+  Tools --> TG[Telegram_Bot_API]
+```
+
+1. Load interests
+2. Fetch arXiv candidates (interest query + recent category sweep)
+3. Enrich with Semantic Scholar citations
+4. Rank (keyword match, citation velocity, recency)
+5. Summarize + persist top papers
+6. Send Telegram digest (skipped if not configured)
 
 ## Configuration
 
-Copy `.env.example` to `.env` and adjust:
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `OPENAI_API_KEY` | empty | Enables richer LLM summaries |
-| `OPENAI_MODEL` | `gpt-4o-mini` | Model used when LLM mode is on |
-| `PAPERS_PER_RUN` | `20` | Max papers kept per run after ranking |
-| `ARXIV_CATEGORIES` | `cs.AI,cs.LG,cs.CL,cs.CV` | Categories to scan |
-| `INTEREST_KEYWORDS` | empty | Seed interests (comma/newline separated) |
-| `INTERESTS_FILE` | `./data/interests.txt` | Plain-text interests file |
-| `SEMANTICSCHOLAR_API_KEY` | empty | Optional, higher citation API rate limits |
-| `REQUIRE_KEYWORD_MATCH` | `false` | Drop papers with no interest match |
-| `SCHEDULE_DAY_OF_WEEK` | `mon` | Cron day for weekly job |
-| `SCHEDULE_HOUR` / `SCHEDULE_MINUTE` | `9` / `0` | Scheduler time |
-| `DATABASE_URL` | `sqlite:///./data/papers.db` | SQLite (or other SQLAlchemy URL) |
+| Variable | Purpose |
+|---|---|
+| `OPENAI_API_KEY` | Strands OpenAI model (recommended) |
+| `OPENAI_MODEL` | Default `gpt-4o-mini` |
+| `PAPERS_PER_RUN` | Max papers kept after ranking |
+| `ARXIV_CATEGORIES` | arXiv categories |
+| `INTEREST_KEYWORDS` / `INTERESTS_FILE` | Seed interests |
+| `SEMANTICSCHOLAR_API_KEY` | Optional citation API key |
+| `REQUIRE_KEYWORD_MATCH` | Drop non-matching papers |
+| `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | Digest notifications |
+| `SCHEDULE_*` | Weekly cron |
+| `DATABASE_URL` | Default SQLite file |
 
 ## API
 
-- `GET /api/health` — health + next scheduled run
-- `GET /api/interests` / `PUT /api/interests` — read or replace interest keywords
-- `GET /api/runs` — research run history
-- `GET /api/runs/{id}` — run detail with papers
-- `GET /api/papers` — list papers (`?saved=true`, `?unread=true`)
-- `PATCH /api/papers/{id}` — `{ "is_read": true, "is_saved": false }`
-- `POST /api/research/run` — start a manual research run
+- `GET /api/health` — health, next run, telegram/strands flags
+- `GET|PUT /api/interests` — interest keywords
+- `GET /api/runs` / `GET /api/runs/{id}` — research history
+- `GET /api/papers` / `PATCH /api/papers/{id}` — tracking
+- `POST /api/research/run` — start a Strands research run
 
 ## Tests
 
@@ -77,17 +88,13 @@ pytest -q
 
 ```
 app/
-  agent.py          # fetch → cite → rank → summarize → persist
-  arxiv_client.py   # arXiv Atom API client
-  citations.py      # Semantic Scholar citation enrichment
-  ranking.py        # interest + citation + recency scoring
-  interests.py      # keyword load/sync helpers
-  summarizer.py     # extractive + optional LLM summaries
-  scheduler.py      # weekly APScheduler job
-  main.py           # FastAPI + UI routes
-  models.py         # SQLAlchemy models
-  templates/        # Jinja UI
-  static/           # CSS / JS
-data/
-  interests.txt     # editable interest keywords
+  strands_agent.py     # Strands Agent entrypoint
+  tools/research_tools.py  # @tool pipeline steps
+  telegram.py          # Telegram Bot API helper
+  agent.py             # Thin ResearchAgent facade
+  models.py            # SQLModel tables
+  arxiv_client.py / citations.py / ranking.py / interests.py / summarizer.py
+  scheduler.py / main.py
+  templates/ static/
+data/interests.txt
 ```

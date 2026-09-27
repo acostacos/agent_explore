@@ -6,8 +6,7 @@ import logging
 import re
 from pathlib import Path
 
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlmodel import Session, select
 
 import app.models as models
 from app.config import Settings, get_settings
@@ -65,7 +64,7 @@ def sync_seed_keywords(db: Session | None = None, settings: Settings | None = No
 
         existing = {
             normalize_keyword(row.keyword): row
-            for row in session.scalars(select(models.InterestKeyword)).all()
+            for row in session.exec(select(models.InterestKeyword)).all()
         }
         for kw, source in seeded:
             if kw in existing:
@@ -80,14 +79,14 @@ def sync_seed_keywords(db: Session | None = None, settings: Settings | None = No
 
 
 def list_keywords(db: Session) -> list[str]:
-    rows = db.scalars(select(models.InterestKeyword).order_by(models.InterestKeyword.keyword)).all()
+    rows = db.exec(select(models.InterestKeyword).order_by(models.InterestKeyword.keyword)).all()
     return [r.keyword for r in rows]
 
 
 def replace_keywords(db: Session, keywords: list[str], source: str = "ui") -> list[str]:
     """Replace the full interest set (used by the UI load form)."""
     normalized = parse_keywords(keywords)
-    existing = db.scalars(select(models.InterestKeyword)).all()
+    existing = db.exec(select(models.InterestKeyword)).all()
     for row in existing:
         db.delete(row)
     db.flush()
@@ -100,7 +99,7 @@ def replace_keywords(db: Session, keywords: list[str], source: str = "ui") -> li
 def add_keywords(db: Session, keywords: list[str], source: str = "ui") -> list[str]:
     normalized = parse_keywords(keywords)
     existing = {
-        normalize_keyword(r.keyword) for r in db.scalars(select(models.InterestKeyword)).all()
+        normalize_keyword(r.keyword) for r in db.exec(select(models.InterestKeyword)).all()
     }
     for kw in normalized:
         if kw in existing:

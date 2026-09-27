@@ -1,4 +1,4 @@
-"""Weekly APScheduler job for the research agent."""
+"""Weekly APScheduler job for the Strands research agent."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ _started = False
 
 
 def _run_agent_job() -> None:
-    logger.info("Starting scheduled weekly research run")
+    logger.info("Starting scheduled weekly Strands research run")
     agent = ResearchAgent()
     try:
         asyncio.run(agent.run(trigger="scheduled"))
@@ -48,7 +48,7 @@ def start_scheduler() -> BackgroundScheduler:
     scheduler.start()
     _started = True
     logger.info(
-        "Scheduler started — weekly run on %s at %02d:%02d",
+        "Scheduler started — weekly Strands run on %s at %02d:%02d",
         settings.schedule_day_of_week,
         settings.schedule_hour,
         settings.schedule_minute,

@@ -115,6 +115,8 @@ def build_search_query(categories: list[str], keywords: list[str] | None = None)
 
 
 async def _query_arxiv(query: str, max_results: int, timeout: float) -> list[ArxivPaper]:
+    import asyncio
+
     url = (
         "https://export.arxiv.org/api/query"
         f"?search_query={quote_plus(query)}"
@@ -122,9 +124,25 @@ async def _query_arxiv(query: str, max_results: int, timeout: float) -> list[Arx
         "&sortBy=submittedDate&sortOrder=descending"
     )
 
+    last_error: Exception | None = None
     async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-        response = await client.get(url, headers={"User-Agent": "PaperPulse/1.0 (research-agent)"})
-        response.raise_for_status()
+        for attempt in range(4):
+            response = await client.get(
+                url, headers={"User-Agent": "PaperPulse/1.0 (research-agent)"}
+            )
+            if response.status_code == 429:
+                last_error = httpx.HTTPStatusError(
+                    "arXiv rate limited",
+                    request=response.request,
+                    response=response,
+                )
+                await asyncio.sleep(2 ** attempt)
+                continue
+            response.raise_for_status()
+            break
+        else:
+            assert last_error is not None
+            raise last_error
 
     root = ET.fromstring(response.text)
     papers: list[ArxivPaper] = []

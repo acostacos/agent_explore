@@ -1,82 +1,70 @@
 from datetime import datetime, timezone
+from typing import Optional
 
-from sqlalchemy import (
-    Boolean,
-    DateTime,
-    Float,
-    ForeignKey,
-    Integer,
-    String,
-    Text,
-    create_engine,
-    event,
-    text,
-)
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
+from sqlalchemy import Column, Text, event, text
+from sqlmodel import Field, Relationship, Session, SQLModel, create_engine
 
 from app.config import get_settings
-
-
-class Base(DeclarativeBase):
-    pass
 
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
-class ResearchRun(Base):
+class ResearchRun(SQLModel, table=True):
     __tablename__ = "research_runs"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    status: Mapped[str] = mapped_column(String(32), default="running")
-    trigger: Mapped[str] = mapped_column(String(32), default="scheduled")
-    papers_found: Mapped[int] = mapped_column(Integer, default=0)
-    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    categories: Mapped[str] = mapped_column(String(255), default="")
-    keywords_used: Mapped[str] = mapped_column(Text, default="")
+    id: Optional[int] = Field(default=None, primary_key=True)
+    started_at: datetime = Field(default_factory=utcnow)
+    finished_at: Optional[datetime] = Field(default=None)
+    status: str = Field(default="running", max_length=32)
+    trigger: str = Field(default="scheduled", max_length=32)
+    papers_found: int = Field(default=0)
+    error_message: Optional[str] = Field(default=None, sa_column=Column(Text))
+    categories: str = Field(default="", max_length=255)
+    keywords_used: str = Field(default="", sa_column=Column(Text, default=""))
 
-    papers: Mapped[list["Paper"]] = relationship(
+    papers: list["Paper"] = Relationship(
         back_populates="run",
-        cascade="all, delete-orphan",
-        order_by="Paper.rank_score.desc()",
+        sa_relationship_kwargs={
+            "cascade": "all, delete-orphan",
+            "order_by": "Paper.rank_score.desc()",
+        },
     )
 
 
-class Paper(Base):
+class Paper(SQLModel, table=True):
     __tablename__ = "papers"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    run_id: Mapped[int] = mapped_column(ForeignKey("research_runs.id"), index=True)
-    arxiv_id: Mapped[str] = mapped_column(String(64), index=True)
-    title: Mapped[str] = mapped_column(String(512))
-    authors: Mapped[str] = mapped_column(Text, default="")
-    abstract: Mapped[str] = mapped_column(Text, default="")
-    summary: Mapped[str] = mapped_column(Text, default="")
-    categories: Mapped[str] = mapped_column(String(255), default="")
-    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    pdf_url: Mapped[str] = mapped_column(String(512), default="")
-    abs_url: Mapped[str] = mapped_column(String(512), default="")
-    is_read: Mapped[bool] = mapped_column(Boolean, default=False)
-    is_saved: Mapped[bool] = mapped_column(Boolean, default=False)
-    citation_count: Mapped[int] = mapped_column(Integer, default=0)
-    influential_citation_count: Mapped[int] = mapped_column(Integer, default=0)
-    matched_keywords: Mapped[str] = mapped_column(String(512), default="")
-    rank_score: Mapped[float] = mapped_column(Float, default=0.0)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    id: Optional[int] = Field(default=None, primary_key=True)
+    run_id: int = Field(foreign_key="research_runs.id", index=True)
+    arxiv_id: str = Field(max_length=64, index=True)
+    title: str = Field(max_length=512)
+    authors: str = Field(default="", sa_column=Column(Text, default=""))
+    abstract: str = Field(default="", sa_column=Column(Text, default=""))
+    summary: str = Field(default="", sa_column=Column(Text, default=""))
+    categories: str = Field(default="", max_length=255)
+    published_at: Optional[datetime] = Field(default=None)
+    pdf_url: str = Field(default="", max_length=512)
+    abs_url: str = Field(default="", max_length=512)
+    is_read: bool = Field(default=False)
+    is_saved: bool = Field(default=False)
+    citation_count: int = Field(default=0)
+    influential_citation_count: int = Field(default=0)
+    matched_keywords: str = Field(default="", max_length=512)
+    rank_score: float = Field(default=0.0)
+    created_at: datetime = Field(default_factory=utcnow)
 
-    run: Mapped["ResearchRun"] = relationship(back_populates="papers")
+    run: Optional[ResearchRun] = Relationship(back_populates="papers")
 
 
-class InterestKeyword(Base):
+class InterestKeyword(SQLModel, table=True):
     __tablename__ = "interest_keywords"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    keyword: Mapped[str] = mapped_column(String(255), unique=True, index=True)
-    source: Mapped[str] = mapped_column(String(64), default="ui")  # ui | file | env
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    id: Optional[int] = Field(default=None, primary_key=True)
+    keyword: str = Field(max_length=255, unique=True, index=True)
+    source: str = Field(default="ui", max_length=64)
+    created_at: datetime = Field(default_factory=utcnow)
 
 
 engine = None
@@ -84,13 +72,17 @@ SessionLocal = None
 
 
 def configure_engine(database_url: str | None = None):
-    """(Re)bind the SQLAlchemy engine — used at startup and in tests."""
+    """(Re)bind the SQLModel/SQLAlchemy engine — used at startup and in tests."""
     global engine, SessionLocal
     settings = get_settings()
     url = database_url or settings.database_url
     connect_args = {"check_same_thread": False} if url.startswith("sqlite") else {}
     engine = create_engine(url, connect_args=connect_args)
-    SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+    def _session_factory():
+        return Session(engine)
+
+    SessionLocal = _session_factory
 
     if url.startswith("sqlite"):
 
@@ -131,7 +123,7 @@ def migrate_schema() -> None:
 def init_db() -> None:
     if engine is None:
         configure_engine()
-    Base.metadata.create_all(bind=engine)
+    SQLModel.metadata.create_all(engine)
     migrate_schema()
 
 
@@ -141,3 +133,7 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+# Alias used by plan / newer call sites
+get_session = get_db

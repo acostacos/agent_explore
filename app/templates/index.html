@@ -4,10 +4,10 @@
   <p class="brand-mark">{{ app_name }}</p>
   <h1>Weekly AI paper digests, tracked in one place.</h1>
   <p class="lede">
-    Every week the agent scans arXiv for new work in
+    A Strands agent scans arXiv weekly for new work in
     {% for cat in categories %}<span class="cat">{{ cat }}</span>{% if not loop.last %}, {% endif %}{% endfor %}{% if keywords %},
     biased toward your interests{% endif %},
-    then ranks for citation traction and summarizes each pick.
+    ranks for citation traction, summarizes each pick{% if telegram_enabled %}, and sends the digest to Telegram{% endif %}.
   </p>
   <div class="cta-row">
     <form action="/research/run" method="post">
@@ -17,6 +17,7 @@
       Next automatic run:
       {% if next_run %}<time datetime="{{ next_run }}">{{ next_run }}</time>
       {% else %}{{ schedule_day }} {{ '%02d'|format(schedule_hour) }}:{{ '%02d'|format(schedule_minute) }} UTC{% endif %}
+      {% if telegram_enabled %} · Telegram notify on{% else %} · Telegram not configured{% endif %}
     </p>
   </div>
 </section>

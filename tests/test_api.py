@@ -14,6 +14,9 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db_path}")
     monkeypatch.setenv("INTERESTS_FILE", str(interests))
     monkeypatch.setenv("INTEREST_KEYWORDS", "causal inference")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("TELEGRAM_CHAT_ID", raising=False)
     get_settings.cache_clear()
     models.configure_engine(f"sqlite:///{db_path}")
     models.init_db()
@@ -30,7 +33,10 @@ def client(tmp_path, monkeypatch):
 def test_health(client):
     res = client.get("/api/health")
     assert res.status_code == 200
-    assert res.json()["status"] == "ok"
+    body = res.json()
+    assert body["status"] == "ok"
+    assert "telegram_enabled" in body
+    assert "strands" in body
 
 
 def test_home_renders(client):
@@ -38,6 +44,7 @@ def test_home_renders(client):
     assert res.status_code == 200
     assert b"PaperPulse" in res.content
     assert b"Interest keywords" in res.content
+    assert b"Strands" in res.content
 
 
 def test_interests_seeded_and_replaceable(client):
