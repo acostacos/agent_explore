@@ -216,3 +216,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Re-include the AgentCore CDK source (the generic 'lib/' rule above would otherwise hide it)
+!ResearchGroup/agentcore/cdk/lib/

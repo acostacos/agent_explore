@@ -1,0 +1,83 @@
+{
+  "$schema": "https://schema.agentcore.aws.dev/v1/agentcore.json",
+  "name": "ResearchGroup",
+  "version": 1,
+  "managedBy": "CDK",
+  "tags": {
+    "agentcore:created-by": "agentcore-cli",
+    "agentcore:project-name": "ResearchGroup"
+  },
+  "runtimes": [
+    {
+      "name": "main_researcher",
+      "build": "Container",
+      "entrypoint": "main.py",
+      "codeLocation": "app/main_researcher/",
+      "runtimeVersion": "PYTHON_3_14",
+      "networkMode": "PUBLIC",
+      "protocol": "HTTP"
+    },
+    {
+      "name": "research_tools",
+      "description": "FastMCP server exposing Brave Search and arXiv tools",
+      "build": "Container",
+      "entrypoint": "server.py",
+      "codeLocation": "app/research_tools/",
+      "runtimeVersion": "PYTHON_3_14",
+      "networkMode": "PUBLIC",
+      "protocol": "MCP",
+      "authorizerType": "AWS_IAM"
+    }
+  ],
+  "memories": [],
+  "knowledgeBases": [],
+  "credentials": [],
+  "evaluators": [],
+  "onlineEvalConfigs": [],
+  "agentCoreGateways": [
+    {
+      "name": "research-gateway",
+      "description": "IAM-authenticated front door for the research_tools MCP runtime",
+      "protocolType": "None",
+      "authorizerType": "AWS_IAM",
+      "enableSemanticSearch": false,
+      "exceptionLevel": "NONE",
+      "targets": [
+        {
+          "name": "research-tools",
+          "targetType": "httpRuntime",
+          "httpRuntime": {
+            "runtime": "research_tools"
+          }
+        }
+      ]
+    }
+  ],
+  "policyEngines": [],
+  "configBundles": [
+    {
+      "name": "main_researcherConfig",
+      "type": "ConfigurationBundle",
+      "description": "Configuration for main_researcher — managed by agentcore CLI",
+      "components": {
+        "{{runtime:main_researcher}}": {
+          "configuration": {
+            "systemPrompt": "You are a research assistant that helps follow the latest AI news and research.\nYou can search recent arXiv papers (arxiv_search) and the web and news (brave_web_search, brave_news_search).\nUse the tools when the question needs fresh information, cite titles with links, and never invent sources.",
+            "toolDescriptions": {
+              "arxiv_search": "Search recent arXiv papers by category and keywords, newest first",
+              "brave_news_search": "Search recent news with the Brave Search API",
+              "brave_web_search": "Search the web with the Brave Search API"
+            }
+          }
+        }
+      },
+      "branchName": "mainline",
+      "commitMessage": "Initial configuration"
+    }
+  ],
+  "abTests": [],
+  "harnesses": [],
+  "datasets": [],
+  "capacityProviders": [],
+  "payments": []
+}
